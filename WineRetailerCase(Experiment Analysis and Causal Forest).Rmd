@@ -1,0 +1,244 @@
+---
+title: "case4"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list=ls()); gc();
+dir =  "C:/Users/liujr/Downloads"
+setwd(dir)
+library(dplyr)
+library(tidyr)
+library(data.table)
+library(ggplot2)
+library(grf)
+
+d = read.csv("test_data_1904.csv")#load the data for this assignment
+```
+
+
+Question A:
+```{r}
+summary(d)
+```
+Depict the average effects in table and graph form as follows:
+
+```{r}
+dt = data.table(d)
+dagg = dt[,.(open = mean(open), click=mean(click), purch = mean(purch),seOpen = sd(open)/sqrt(.N), seClick=sd(click)/sqrt(.N), sePurch = sd(purch)/sqrt(.N),.N),by = .(group)]
+dagg
+```
+
+
+```{r}
+dodge = position_dodge(width=1);  ##to form constant dimensions
+ggplot(aes(x=group,y=purch,ymax=purch+sePurch,ymin=purch-sePurch),data=dagg)+
+  geom_bar(position=dodge,stat="identity",col=2:3,fill=2:3) + 
+  geom_errorbar(position=dodge)
+  labs(x="Group",y="Purchases")
+```
+
+To evaluate the average causal effect on purchases. 
+```{r}
+summary(lm(purch~group,data=d)) #compares those who receive email to control group
+#intercept shows the control group
+```
+The effect is highly significant between the groups receive email or not, and the effect size is \$1.3465 for groupemail.  
+
+
+Control for more variables to increase the accurancy 
+```{r}
+summary(lm(purch~group+chard+sav_blanc+syrah+cab+past_purch+last_purch+visits,data=d)) #adding baseline variables as controls/have NA in past purchase because colinearty
+
+summary(lm(purch~group+chard+sav_blanc+syrah+cab+last_purch+visits,data=d)) #adding controls and drop the past_purch
+
+```
+Notice the standard errors do shrink some, but not by much. 
+Actually, in the previous regression model, we already can tell the average effect of email.
+
+Question B:
+Define different Slicing and dicing criterion
+1.recent buyers versus aged customers
+## Baseline variable: days since last purchase
+```{r}
+hist(d$last_purch, 
+     xlab="Days Since Last Purchase", ylab="Customers", 
+     main="Histogram of Days Since Last Purchase")
+d$recentPurch = (d$last_purch < 60)
+dt = data.table(d)
+```
+## Slicing and dicing: recent buyers versus aged customers
+```{r}
+dagg = dt[,.(open = mean(open), click=mean(click), purch = mean(purch),seOpen = sd(open)/sqrt(.N), seClick=sd(click)/sqrt(.N), sePurch = sd(purch)/sqrt(.N),.N),by = .(group,recentPurch)]
+dagg
+```
+- Recent buyers buy more on average  
+- The email seems to produce a stronger effect on purchases for more recent buyers 
+
+## Is email more effective for recent buyers? 
+```{r}
+dodge = position_dodge(width=1); ##to form constant dimensions
+ggplot(aes(fill=group,y=purch,x=recentPurch,ymax=purch+sePurch,ymin=purch-sePurch),data=dagg)+
+  geom_bar(position=dodge,stat="identity") + 
+  geom_errorbar(position=dodge)
+  labs(x="Group",y="Purchases")
+```
+
+Check if the difference is significant
+```{r}
+summary(lm(purch~group*recentPurch,data=d))
+```
+Based on the result, we can tell that for those who received the email, recent purchase or not are not significantly different, so we could not group customers by the purchase history.
+
+## Baseline variable: bought sav_blanc
+```{r}
+hist(d$syrah, 
+     xlab="Amount of Sav_Blanc", ylab="Customers", 
+     main="Histogram of bought Sav_Blanc")
+d$boughtsavblanc = (d$sav_blanc > 0)
+dt = data.table(d)
+```
+
+## Slicing and dicing: bought sav_blanc or not
+```{r}
+dagg = dt[,.(open = mean(open), click=mean(click), purch = mean(purch),seOpen = sd(open)/sqrt(.N), seClick=sd(click)/sqrt(.N), sePurch = sd(purch)/sqrt(.N),.N),by = .(group,boughtsavblanc)]
+dagg
+```
+
+```{r}
+dodge = position_dodge(width=1); ##to form constant dimensions
+ggplot(aes(fill=group,y=purch,x=boughtsavblanc,ymax=purch+sePurch,ymin=purch-sePurch),data=dagg)+
+  geom_bar(position=dodge,stat="identity") + 
+  geom_errorbar(position=dodge)
+  labs(x="Group",y="Purchases")
+```
+
+```{r}
+summary(lm(purch~group*boughtsavblanc,data=d))
+
+```
+the difference is significant, so this might be a good example of slicing and dicing
+
+## Baseline variable: past purchase
+```{r}
+hist(d$past_purch, 
+     xlab="Amount of past purchase", ylab="Customers", 
+     main="Histogram of past purchase")
+d$havepurchased = (d$past_purch > 300)
+dt = data.table(d)
+```
+
+## Slicing and dicing: if past purchase more than $300 or not
+```{r}
+dagg = dt[,.(open = mean(open), click=mean(click), purch = mean(purch),seOpen = sd(open)/sqrt(.N), seClick=sd(click)/sqrt(.N), sePurch = sd(purch)/sqrt(.N),.N),by = .(group,havepurchased)]
+dagg
+```
+
+```{r}
+dodge = position_dodge(width=1); ##to form constant dimensions
+ggplot(aes(fill=group,y=purch,x=havepurchased,ymax=purch+sePurch,ymin=purch-sePurch),data=dagg)+
+  geom_bar(position=dodge,stat="identity") + 
+  geom_errorbar(position=dodge)
+  labs(x="Group",y="Purchases")
+```
+
+```{r}
+summary(lm(purch~group*havepurchased,data=d))
+```
+It is significant that the group who have purchase amount >$300 are more likely to purchase the wine. This also could be a good example.
+So we need to compare the 2 slicing and dicing examples above.
+
+## Compare profit to decide which slicing and dicing method is more useful
+```{r}
+margin = 0.3
+cost = 0.1
+numSAV = count(subset(d,d$group == 'email'&d$boughtsavblanc == T))
+effectSAV = summary(lm(purch~group*boughtsavblanc,data=d))$coefficient[4]+summary(lm(purch~group*boughtsavblanc,data=d))$coefficient[2]
+profitSAV = (margin*effectSAV -cost)*numSAV
+profitSAV #$8341.035 for those who bought SAV_Blanc
+numPP = count(subset(d,d$group == 'email'&d$havepurchased == T))
+effectPP = summary(lm(purch~group*havepurchased,data=d))$coefficient[4]+summary(lm(purch~group*havepurchased,data=d))$coefficient[2]
+profitPP = (margin*effectPP-cost)*numPP
+profitPP #$4280.756 for thoes with larger(>$300) past purchase 
+```
+we can generate higher profits if we conduct slicing and dicing by the purchase history of SAV_Blanc, so this is the more useful slicing and dicing method.
+
+Question C:
+## Causal forest for wine retailer experiment
+```{r}
+cf_size <- nrow(d) 
+treat <- d$group =="email"
+response <- d$purch
+baseline <- d[, c("last_purch", "visits", "chard", "sav_blanc", "syrah", "cab")]
+tmp=proc.time()[3]
+cf <- causal_forest(baseline, response, treat)
+tmp = proc.time()[3]-tmp
+print(cf)
+```
+
+
+## Predicted uplift for all customers in test
+```{r}
+d$score = predict(cf)$predictions*0.3-0.1
+d$target = d$score>0
+nrow(subset(d,d$target==T))/nrow(d)
+
+# If we have the new customers data frame, we should do like the following code:
+# new_cust <- data.frame(chard=38.12, sav_blanc=0, syrah=0, cab=0, last_purch=19, visits=3)
+# predict(cf, new_cust, estimate.variance = TRUE)
+# new_cust$score = predict(cf)$predictions*0.3-0.1
+# new_cust$target = new_cust$score>0
+```
+55% of the customers should be targeted for email marketing
+
+output the csv file for the prediction outcomes:
+```{r}
+write.csv(d,'prediction.csv')
+```
+
+```{r}
+hist(predict(cf)$predictions, 
+     main="Histogram of Purchase Lift", 
+     xlab="Purchase Lift for Email", ylab="Customers")
+```
+
+
+Demographics of the targeted customers
+(for example, the average of the targeted customers last purchase amount)
+```{r}
+dt = data.table(d)
+dagg = dt[,.(last_purch = round(mean(last_purch),2),
+           chard = round(mean(chard),2), sav_blanc = round(mean(sav_blanc),2), syrah = round(mean(syrah),2),cab = round(mean(cab),2),visits = round(mean(visits),2)),by = .(target)]
+dagg
+
+
+ggplot(data=dagg)+
+     geom_bar(aes(x=target,y=last_purch,fill = target),stat="identity",width = 0.3)+
+     geom_text(aes(x=target,label=round(last_purch,2), y=last_purch), position=position_dodge(0.9), vjust=0)
+
+
+ggplot(data=dagg)+
+     geom_bar(aes(x=target,y=chard,fill = target),stat="identity",width = 0.3)+
+     geom_text(aes(x=target,label=round(chard,2), y=chard), position=position_dodge(0.9), vjust=0)
+ 
+ggplot(data=dagg)+
+     geom_bar(aes(x=target,y=sav_blanc,fill = target),stat="identity",width = 0.3)+
+     geom_text(aes(x=target,label=round(sav_blanc,2), y=sav_blanc), position=position_dodge(0.9), vjust=0)
+ 
+ggplot(data=dagg)+
+     geom_bar(aes(x=target,y=syrah,fill = target),stat="identity",width = 0.3)+
+     geom_text(aes(x=target,label=round(syrah,2), y=syrah), position=position_dodge(0.9), vjust=0)
+ 
+ggplot(data=dagg)+
+     geom_bar(aes(x=target,y=cab,fill = target),stat="identity",width = 0.3)+
+     geom_text(aes(x=target,label=round(cab,2), y=cab), position=position_dodge(0.9), vjust=0)
+ 
+ggplot(data=dagg)+
+     geom_bar(aes(x=target,y=visits,fill = target),stat="identity",width = 0.3)+
+     geom_text(aes(x=target,label=round(visits,2), y=visits), position=position_dodge(0.9), vjust=0)
+```
+
+```{r}
+
+```
+
